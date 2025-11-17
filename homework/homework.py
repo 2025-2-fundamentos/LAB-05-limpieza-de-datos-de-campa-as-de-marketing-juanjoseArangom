@@ -4,6 +4,9 @@ Escriba el codigo que ejecute la accion solicitada.
 
 # pylint: disable=import-outside-toplevel
 
+import pandas as pd
+import numpy as np
+from pathlib import Path
 
 def clean_campaign_data():
     """
@@ -49,8 +52,89 @@ def clean_campaign_data():
 
 
     """
+    input_dir = Path('files/input')
+    output_dir = Path('files/output')
 
-    return
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    zip_files = list(input_dir.glob('*.csv.zip'))
+    
+    if not zip_files:
+        print(f"Error: No se encontraron archivos '*.csv.zip' en {input_dir}")
+        return
+
+    all_dfs = []
+    for zip_file in zip_files:
+        try:
+            df = pd.read_csv(zip_file, compression='zip')
+            all_dfs.append(df)
+        except Exception as e:
+            print(f"Error al leer el archivo {zip_file}: {e}")
+            
+    if not all_dfs:
+        print("No se cargaron datos.")
+        return
+
+    df_full = pd.concat(all_dfs, ignore_index=True)
+
+    client_cols_input = [
+        'client_id', 'age', 'job', 'marital', 
+        'education', 'credit_default', 'mortgage' 
+    ]
+    cols_to_use = [col for col in client_cols_input if col in df_full.columns]
+    df_client = df_full[cols_to_use].copy()
+
+    df_client['job'] = df_client['job'].str.replace('.', '', regex=False).str.replace('-', '_')
+    df_client['education'] = df_client['education'].str.replace('.', '_', regex=False).replace('unknown', pd.NA)
+    df_client['credit_default'] = np.where(df_client['credit_default'] == 'yes', 1, 0)
+    df_client['mortgage'] = np.where(df_client['mortgage'] == 'yes', 1, 0)
+    
+    df_client.to_csv(output_dir / 'client.csv', index=False)
+
+
+    campaign_cols = [
+        'client_id', 'number_contacts', 'contact_duration',
+        'previous_campaign_contacts', 'previous_outcome', 
+        'campaign_outcome', 'day', 'month'
+    ]
+    df_campaign = df_full[campaign_cols].copy()
+
+    df_campaign['previous_outcome'] = np.where(df_campaign['previous_outcome'] == 'success', 1, 0)
+    df_campaign['campaign_outcome'] = np.where(df_campaign['campaign_outcome'] == 'yes', 1, 0)
+    df_campaign['year'] = 2022
+    
+    month_map = {
+        'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+        'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+    }
+    df_campaign['month'] = df_campaign['month'].str.lower().map(month_map)
+
+    date_cols = ['year', 'month', 'day']
+    df_campaign['last_contact_day'] = pd.to_datetime(df_campaign[date_cols])
+    df_campaign['last_contact_day'] = df_campaign['last_contact_day'].dt.strftime('%Y-%m-%d')
+
+    df_campaign = df_campaign.rename(columns={
+        'last_contact_day': 'last_contact_date'
+    })
+    
+    final_campaign_cols = [
+        'client_id', 'number_contacts', 'contact_duration',
+        'previous_campaign_contacts', 'previous_outcome', 
+        'campaign_outcome', 'last_contact_date' 
+    ]
+    
+    df_campaign[final_campaign_cols].to_csv(output_dir / 'campaign.csv', index=False)
+
+    
+    economics_cols = [
+        'client_id', 
+        'cons_price_idx',
+        'euribor_three_months'
+    ]
+    df_economics = df_full[economics_cols].copy()
+    
+    df_economics.to_csv(output_dir / 'economics.csv', index=False)
+
 
 
 if __name__ == "__main__":
